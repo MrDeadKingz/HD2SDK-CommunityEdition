@@ -65,6 +65,7 @@ Global_CPPHelper = ctypes.cdll.LoadLibrary(Global_dllpath) if os.path.isfile(Glo
 
 Global_Foldouts = []
 
+
 Global_SectionHeader = "---------- Helldivers 2 ----------"
 
 Global_randomID = ""
@@ -5020,47 +5021,95 @@ class LoadArchivesOperator(Operator):
             self.report({'ERROR'}, message )
             return{'CANCELLED'}
 
+class HELLDIVER2_OT_ToggleCategory(Operator):
+    bl_idname = "helldiver2.toggle_category"
+    bl_label = "Toggle Category Collapse"
+
+    category_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        global Global_Foldouts
+        for i, item in enumerate(Global_Foldouts):
+            if item[0] == self.category_name:
+                Global_Foldouts[i][1] = not item[1]
+                break
+        else:
+            Global_Foldouts.append([self.category_name, True])
+        return {'FINISHED'}
+
+
 class SearchArchivesOperator(Operator):
-    bl_label = "Search Found Archives"
     bl_idname = "helldiver2.search_archives"
+    bl_label = "Search Found Archives"
     bl_description = "Search from Found Archives"
 
-    SearchField : StringProperty(name="SearchField", default="")
+    SearchField: StringProperty(name="SearchField", default="")
+
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.prop(self, "SearchField", icon='VIEWZOOM')
-        # Update displayed archives
-        if self.PrevSearch != self.SearchField:
-            self.PrevSearch = self.SearchField
 
-            self.ArchivesToDisplay = []
-            for Entry in Global_ArchiveHashes:
-                if Entry[1].lower().find(self.SearchField.lower()) != -1:
-                    self.ArchivesToDisplay.append([Entry[0], Entry[1]])
-    
-        if self.SearchField != "" and len(self.ArchivesToDisplay) == 0:
-            row = layout.row(); row.label(text="No Archive IDs Found")
-            row = layout.row(); row.label(text="Know an ID that's Not Here?")
-            row = layout.row(); row.label(text="Make an issue on the github.")
-            row = layout.row(); row.label(text="Archive ID and In Game Name")
-            row = layout.row(); row.operator("helldiver2.github", icon= 'URL')
+        grouped = {}
 
-        else:
-            for Archive in self.ArchivesToDisplay:
-                row = layout.row()
-                row.label(text=Archive[1], icon='GROUP')
-                row.operator("helldiver2.archives_import", icon= 'FILE_NEW', text="").paths_str = Global_gamepath + str(Archive[0])
+        # Group archive entries by category
+        for archive_id, name in Global_ArchiveHashes:
+            if ":" in name:
+                category, label = name.split(":", 1)
+                category = category.strip()
+                label = label.strip()
+            else:
+                category = "Uncategorized"
+                label = name.strip()
+
+            if self.SearchField.lower() in label.lower():
+                grouped.setdefault(category, []).append((archive_id, label))
+
+        total_matches = sum(len(entries) for entries in grouped.values())
+
+        if total_matches == 0:
+            layout.label(text="No Archive IDs Found", icon='ERROR')
+            layout.label(text="Know an ID that's Not Here?")
+            layout.label(text="Make an issue on the GitHub.")
+            layout.label(text="Archive ID and In-Game Name")
+            layout.operator("helldiver2.github", icon='URL')
+            return
+
+        global Global_Foldouts
+
+        for category in sorted(grouped):
+            matches = sorted(grouped[category], key=lambda x: x[1].lower())
+
+            # Get or initialize foldout state
+            show = False
+            for item in Global_Foldouts:
+                if item[0] == category:
+                    show = item[1]
+                    break
+            else:
+                Global_Foldouts.append([category, False])
+                show = False
+
+            fold_icon = "DOWNARROW_HLT" if show else "RIGHTARROW"
+            row = layout.row()
+            toggle = row.operator("helldiver2.toggle_category", text=f"{category} ({len(matches)})", icon=fold_icon, emboss=False)
+            toggle.category_name = category
+
+            if show:
+                for archive_id, label in matches:
+                    row = layout.row(align=True)
+                    row.label(text=label, icon='GROUP')
+                    row.operator("helldiver2.archives_import", icon='FILE_NEW', text="").paths_str = Global_gamepath + str(archive_id)
 
     def execute(self, context):
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        self.PrevSearch = "NONE"
-        self.ArchivesToDisplay = []
-
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
+
+
+
 
 class SelectAllOfTypeOperator(Operator):
     bl_label  = "Select All"
@@ -6125,6 +6174,7 @@ classes = (
     ImportStingrayParticleOperator,
     SaveStingrayParticleOperator,
     ImportDumpByIDOperator,
+    HELLDIVER2_OT_ToggleCategory,
 )
 
 Global_TocManager = TocManager()
